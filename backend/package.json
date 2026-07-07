@@ -1,0 +1,11 @@
+{
+  "name": "housekeeping-compliance-app",
+  "version": "1.0.0",
+  "description": "Housekeeping Compliance App for Merling Care Homes - Glebe House",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "seed": "node src/seed.js"
+  }
+}
