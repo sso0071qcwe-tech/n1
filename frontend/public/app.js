@@ -5,7 +5,9 @@ const state = {
   user: null, token: null, view: 'login',
   rooms: [], todayTasks: [], issues: [], dashboard: null,
   currentRoom: 'room_1', checklistType: 'weekly',
-  checklistData: null, periodOffset: 0
+  checklistData: null, periodOffset: 0,
+  signOffInProgress: false, // debounce guard for sign-off
+  loadRequestId: 0 // race condition guard for checklist loading
 };
 
 // ===== API =====
@@ -93,13 +95,23 @@ async function loadChecklist() {
     url = '/api/checklists/quarterly/' + room + '?year=' + target;
   } else if (type === 'ipc') {
     const target = getTargetWeek();
-    url = '/api/checklists/daily/' + room + '?week=' + target;
+    url = '/api/checklists/daily/' + room + '?week=' + target + '&ipc=1';
   } else if (type === 'daily-communal') {
     const target = getTargetWeek();
     url = '/api/checklists/daily-communal/' + room + '?week=' + target;
   }
+  // Race condition guard: only apply the response if this is still the latest request
+  const requestId = ++state.loadRequestId;
   const data = await api(url);
-  if (data) { state.checklistData = data; render(); }
+  if (requestId !== state.loadRequestId) return; // stale response, discard
+  if (data) {
+    // For IPC tab, filter to only IPC-critical tasks client-side
+    if (type === 'ipc' && data.tasks) {
+      data.tasks = data.tasks.filter(t => t.ipc_critical);
+    }
+    state.checklistData = data;
+    render();
+  }
 }
 
 async function loadDashboard() {
@@ -196,28 +208,35 @@ function getTodayStr() {
 function isCurrentPeriod() { return state.periodOffset === 0; }
 
 async function signOffTask(taskDefId, periodKey) {
-  // Find matching today task instance
-  const today = getTodayStr();
-  const matching = state.todayTasks.filter(t =>
-    t.task_definition_id === taskDefId &&
-    t.room_id === state.currentRoom &&
-    t.date === today &&
-    t.status === 'pending'
-  );
-  if (matching.length === 0) {
-    toast('No pending task found for today', 'warning');
-    return;
-  }
-  const taskInstance = matching[0];
-  const res = await api('/api/tasks/' + taskInstance.id + '/complete', {
-    method: 'POST', body: JSON.stringify({})
-  });
-  if (res) {
-    toast('Signed off!', 'success');
-    // Refresh
-    const tasks = await api('/api/tasks/today');
-    if (tasks) state.todayTasks = tasks;
-    await loadChecklist();
+  // Debounce guard: prevent double-tap
+  if (state.signOffInProgress) return;
+  state.signOffInProgress = true;
+  try {
+    // Find matching today task instance
+    const today = getTodayStr();
+    const matching = state.todayTasks.filter(t =>
+      t.task_definition_id === taskDefId &&
+      t.room_id === state.currentRoom &&
+      t.date === today &&
+      t.status === 'pending'
+    );
+    if (matching.length === 0) {
+      toast('No pending task found for today', 'warning');
+      return;
+    }
+    const taskInstance = matching[0];
+    const res = await api('/api/tasks/' + taskInstance.id + '/complete', {
+      method: 'POST', body: JSON.stringify({})
+    });
+    if (res) {
+      toast('Signed off!', 'success');
+      // Refresh
+      const tasks = await api('/api/tasks/today');
+      if (tasks) state.todayTasks = tasks;
+      await loadChecklist();
+    }
+  } finally {
+    state.signOffInProgress = false;
   }
 }
 
@@ -389,7 +408,11 @@ function checklistTab(id, label, active) {
 function renderWeeklyTable() {
   const data = state.checklistData;
   if (!data || !data.tasks) return '<div style="padding:20px;text-align:center">No data</div>';
+  const today = getTodayStr();
   const currentWeek = isCurrentPeriod() ? getCurrentWeekNumber() : -1;
+  // Determine today's day-of-week to show which day the sign-off relates to
+  const todayDate = new Date();
+  const todayDow = todayDate.getDay(); // 0=Sun, 1=Mon, ...
   let html = '<table class="checklist-table"><thead><tr>';
   html += '<th>Specification</th>';
   for (let w = 1; w <= 5; w++) {
@@ -408,11 +431,16 @@ function renderWeeklyTable() {
       if (slot && slot.done) {
         html += '<td class="cell-done' + colClass + '">&#10003;</td>';
         html += '<td class="cell-initials' + colClass + '">' + esc(slot.initials) + '</td>';
-      } else if (isCurrent && isCurrentPeriod()) {
-        html += '<td class="cell-interactive' + colClass + '" onclick="signOffTask(\'' + task.id + '\',\'w' + w + '\')" title="Tap to sign off">&#9744;</td>';
+      } else if (isCurrent && isCurrentPeriod() && slot && slot.date === today) {
+        // Only interactive if this week slot has a task instance for TODAY
+        html += '<td class="cell-interactive' + colClass + '" onclick="signOffTask(\'' + task.id + '\',\'w' + w + '\')" title="Tap to sign off today\'s task">&#9744;</td>';
         html += '<td class="' + colClass + '"></td>';
       } else if (slot && slot.status === 'missed') {
         html += '<td class="cell-missed' + colClass + '">&#10007;</td>';
+        html += '<td class="' + colClass + '"></td>';
+      } else if (isCurrent && isCurrentPeriod()) {
+        // Current week but not today's slot - show as non-interactive pending
+        html += '<td class="cell-pending' + colClass + '" title="Available on scheduled day only">&#8211;</td>';
         html += '<td class="' + colClass + '"></td>';
       } else {
         html += '<td class="cell-pending' + colClass + '"></td>';
@@ -435,20 +463,21 @@ function renderDailyTable() {
   html += '<th>Specification</th>';
   dayNames.forEach((day, idx) => {
     const dayDate = data.tasks[0]?.days[idx]?.date || '';
-    const isCurrent = dayDate === today && isCurrentPeriod();
-    html += '<th class="col-day' + (isCurrent ? ' current-period' : '') + '">' + day + '</th>';
-    html += '<th class="col-sign' + (isCurrent ? ' current-period' : '') + '">Sign</th>';
+    const isToday = dayDate === today;
+    html += '<th class="col-day' + (isToday ? ' current-period' : '') + '">' + day + '</th>';
+    html += '<th class="col-sign' + (isToday ? ' current-period' : '') + '">Sign</th>';
   });
   html += '</tr></thead><tbody>';
   data.tasks.forEach(task => {
     html += '<tr><td>' + esc(task.name) + '</td>';
     task.days.forEach((day, idx) => {
-      const isCurrent = day.date === today && isCurrentPeriod();
-      const colClass = isCurrent ? ' current-col' : '';
+      const isToday = day.date === today;
+      const colClass = isToday ? ' current-col' : '';
       if (day.done) {
         html += '<td class="cell-done' + colClass + '">&#10003;</td>';
         html += '<td class="cell-initials' + colClass + '">' + esc(day.initials) + '</td>';
-      } else if (isCurrent) {
+      } else if (isToday && isCurrentPeriod()) {
+        // Only today's cell is interactive, regardless of period offset
         html += '<td class="cell-interactive' + colClass + '" onclick="signOffTask(\'' + task.id + '\',\'' + day.date + '\')" title="Tap to sign off">&#9744;</td>';
         html += '<td class="' + colClass + '"></td>';
       } else if (day.status === 'missed') {

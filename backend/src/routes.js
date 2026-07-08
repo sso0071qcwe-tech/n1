@@ -716,6 +716,7 @@ route('GET', '/api/checklists/daily/:roomId', (req) => {
       id: def.id,
       name: def.name,
       order: def.order,
+      ipc_critical: def.ipc_critical || false,
       days
     };
   });
