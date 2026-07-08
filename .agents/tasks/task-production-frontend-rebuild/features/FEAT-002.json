@@ -2,7 +2,7 @@
   "id": "FEAT-002",
   "type": "feat",
   "description": "Complete rewrite of the frontend (frontend/public/index.html, frontend/public/styles.css, frontend/public/app.js) to display checklist data as TABLE/GRID format matching the paper forms from Merling Care Limited - Glebe House Care Home. Must show previous data (past weeks filled with staff initials), current week highlighted and editable, per-room navigation, and use the pink/magenta branding matching the paper form headers.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Rewrite frontend/public/styles.css with a production design system using pink/magenta as primary color (matching Merling Care paper forms which have pink/magenta headers). Use CSS variables: --primary as #c2185b or similar magenta/pink, --primary-light, --primary-dark. Keep the professional look with clean table styling, proper responsive grid, and the care home branding aesthetic.",
     "Rewrite frontend/public/index.html - keep it minimal: just the app container, no external fonts (since INTEGRATIONS_ONLY network), use system font stack. Include proper meta tags for mobile.",
@@ -34,5 +34,5 @@
     "Existing backend test.js tests should still pass since backend API is only extended, not modified"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "All frontend files rewritten successfully. No external resources. All 15 backend tests pass. Syntax check passes. Pink/magenta branding with table grid layout showing W1-W5 columns with historical initials. Interactive sign-off using task today matching by task_definition_id + room_id."
 }
