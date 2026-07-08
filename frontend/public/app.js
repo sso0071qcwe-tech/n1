@@ -1,758 +1,432 @@
-// ==========================================
-// HOUSEKEEPING COMPLIANCE APP - Frontend
-// Single Page Application (vanilla JS)
-// ==========================================
+// ============================================
+// HOUSEKEEPING COMPLIANCE APP
+// Production SPA - Glebe House Care Home
+// ============================================
 
-const API_BASE = '';
-let state = {
-  user: null,
-  token: null,
-  currentView: 'login',
-  tasks: [],
-  issues: [],
-  dashboard: null,
-  loading: false
-};
+const API = '';
+const state = { user: null, token: null, view: 'login', tasks: [], issues: [], dashboard: null };
 
 
-// ==========================================
-// API CLIENT
-// ==========================================
-
-async function api(endpoint, options = {}) {
+// ============ API CLIENT ============
+async function api(path, opts = {}) {
   const headers = { 'Content-Type': 'application/json' };
-  if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
-  
-  const res = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    headers: { ...headers, ...options.headers }
-  });
-  
-  const data = await res.json();
-  if (res.status === 401) {
-    logout();
-    return null;
-  }
-  if (!res.ok) {
-    showToast(data.error || 'Something went wrong', 'error');
-    return null;
-  }
-  return data;
+  if (state.token) headers['Authorization'] = 'Bearer ' + state.token;
+  try {
+    const res = await fetch(API + path, { ...opts, headers: { ...headers, ...(opts.headers||{}) } });
+    const json = await res.json();
+    if (res.status === 401) { doLogout(); return null; }
+    if (!res.ok) { toast(json.error || 'Error', 'error'); return null; }
+    return json;
+  } catch (e) { toast('Network error', 'error'); return null; }
 }
 
 
-// ==========================================
-// TOAST NOTIFICATIONS
-// ==========================================
-
-function showToast(message, type = 'info') {
-  let container = document.querySelector('.toast-container');
-  if (!container) {
-    container = document.createElement('div');
-    container.className = 'toast-container';
-    document.body.appendChild(container);
-  }
-  const toast = document.createElement('div');
-  toast.className = `toast ${type}`;
-  toast.textContent = message;
-  container.appendChild(toast);
-  setTimeout(() => toast.remove(), 3000);
+// ============ TOAST ============
+function toast(msg, type = 'info') {
+  const c = document.getElementById('toast-container');
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.textContent = msg;
+  c.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
 }
 
 
-// ==========================================
-// AUTH
-// ==========================================
+// ============ AUTH ============
+let pinValue = '';
 
-async function login(pin) {
-  const result = await api('/api/auth/login', {
-    method: 'POST',
-    body: JSON.stringify({ pin })
-  });
-  if (result) {
-    state.token = result.token;
-    state.user = result.staff;
-    localStorage.setItem('token', result.token);
-    localStorage.setItem('user', JSON.stringify(result.staff));
-    navigateTo('tasks');
+async function doLogin(pin) {
+  const res = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ pin }) });
+  if (res) {
+    state.token = res.token;
+    state.user = res.staff;
+    localStorage.setItem('hk_token', res.token);
+    localStorage.setItem('hk_user', JSON.stringify(res.staff));
+    toast('Welcome, ' + res.staff.name, 'success');
+    navigate('tasks');
   }
-  return result;
+  return res;
 }
 
-function logout() {
-  state.token = null;
-  state.user = null;
-  localStorage.removeItem('token');
-  localStorage.removeItem('user');
-  navigateTo('login');
+function doLogout() {
+  state.token = null; state.user = null;
+  state.tasks = []; state.issues = []; state.dashboard = null;
+  localStorage.removeItem('hk_token');
+  localStorage.removeItem('hk_user');
+  navigate('login');
 }
 
 function restoreSession() {
-  const token = localStorage.getItem('token');
-  const user = localStorage.getItem('user');
-  if (token && user) {
-    state.token = token;
-    state.user = JSON.parse(user);
-    return true;
-  }
+  const t = localStorage.getItem('hk_token');
+  const u = localStorage.getItem('hk_user');
+  if (t && u) { state.token = t; state.user = JSON.parse(u); return true; }
   return false;
 }
 
 
-// ==========================================
-// NAVIGATION
-// ==========================================
-
-function navigateTo(view) {
-  state.currentView = view;
+// ============ NAVIGATION ============
+async function navigate(view) {
+  state.view = view;
   render();
-  if (view === 'tasks') loadTasks();
-  if (view === 'dashboard') loadDashboard();
-  if (view === 'issues') loadIssues();
+  if (view === 'tasks') await loadTasks();
+  else if (view === 'issues') await loadIssues();
+  else if (view === 'dashboard') await loadDashboard();
 }
 
 
-// ==========================================
-// DATA LOADING
-// ==========================================
-
+// ============ DATA LOADERS ============
 async function loadTasks() {
   const data = await api('/api/tasks/today');
-  if (data) {
-    state.tasks = data;
-    render();
-  }
-}
-
-async function loadDashboard() {
-  const data = await api('/api/dashboard/compliance');
-  if (data) {
-    state.dashboard = data;
-    render();
-  }
+  if (data) { state.tasks = data; render(); }
 }
 
 async function loadIssues() {
   const data = await api('/api/issues');
-  if (data) {
-    state.issues = data;
-    render();
-  }
+  if (data) { state.issues = data; render(); }
 }
 
-async function completeTask(taskId) {
-  const result = await api(`/api/tasks/${taskId}/complete`, {
-    method: 'POST',
-    body: JSON.stringify({})
-  });
-  if (result) {
-    showToast('Task completed!', 'success');
-    loadTasks();
-  }
-}
-
-async function submitIssue(issueData) {
-  const result = await api('/api/issues', {
-    method: 'POST',
-    body: JSON.stringify(issueData)
-  });
-  if (result) {
-    showToast('Issue reported!', 'success');
-    closeModal();
-    loadIssues();
-  }
-}
-
-async function updateIssueStatus(issueId, status) {
-  const result = await api(`/api/issues/${issueId}/status`, {
-    method: 'POST',
-    body: JSON.stringify({ status })
-  });
-  if (result) {
-    showToast('Issue updated!', 'success');
-    loadIssues();
-  }
+async function loadDashboard() {
+  const data = await api('/api/dashboard/compliance');
+  if (data) { state.dashboard = data; render(); }
 }
 
 
-// ==========================================
-// MODAL SYSTEM
-// ==========================================
-
-function showModal(content) {
-  const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay';
-  overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
-  overlay.innerHTML = `<div class="modal">${content}</div>`;
-  document.body.appendChild(overlay);
+// ============ ACTIONS ============
+async function completeTask(id) {
+  event && event.stopPropagation();
+  const res = await api('/api/tasks/' + id + '/complete', { method: 'POST', body: JSON.stringify({}) });
+  if (res) { toast('Task completed!', 'success'); await loadTasks(); }
 }
 
-function closeModal() {
-  const overlay = document.querySelector('.modal-overlay');
-  if (overlay) overlay.remove();
+async function completeTaskWithNote(id) {
+  const note = document.getElementById('modal-note')?.value || '';
+  const res = await api('/api/tasks/' + id + '/complete', { method: 'POST', body: JSON.stringify({ note }) });
+  if (res) { toast('Task completed!', 'success'); closeModal(); await loadTasks(); }
+}
+
+async function submitIssue() {
+  const cat = document.getElementById('issue-cat').value;
+  const room = document.getElementById('issue-room').value || null;
+  const desc = document.getElementById('issue-desc').value;
+  if (!desc) { toast('Description required', 'warning'); return; }
+  const res = await api('/api/issues', { method: 'POST', body: JSON.stringify({ category: cat, room_id: room, description: desc }) });
+  if (res) { toast('Issue reported!', 'success'); closeModal(); await loadIssues(); }
+}
+
+async function changeIssueStatus(id, status) {
+  const res = await api('/api/issues/' + id + '/status', { method: 'POST', body: JSON.stringify({ status }) });
+  if (res) { toast('Updated!', 'success'); await loadIssues(); }
 }
 
 
-// ==========================================
-// RENDER - LOGIN SCREEN
-// ==========================================
+// ============ MODAL ============
+function openModal(html) {
+  const root = document.getElementById('modal-root');
+  root.innerHTML = '<div class="modal-backdrop" onclick="if(event.target===this)closeModal()"><div class="modal-panel">' + html + '</div></div>';
+}
+function closeModal() { document.getElementById('modal-root').innerHTML = ''; }
 
+function openTaskModal(id) {
+  const t = state.tasks.find(x => x.id === id);
+  if (!t || t.status !== 'pending') return;
+  openModal(
+    '<div class="modal-head"><h3>' + esc(t.task_name) + '</h3><button class="modal-close" onclick="closeModal()">&#10005;</button></div>' +
+    '<p style="font-size:0.85rem;color:var(--slate-600);margin-bottom:4px"><strong>Room:</strong> ' + esc(t.room_name) + '</p>' +
+    '<p style="font-size:0.85rem;color:var(--slate-600);margin-bottom:4px"><strong>Checklist:</strong> ' + esc(t.template_name) + '</p>' +
+    (t.time_slot ? '<p style="font-size:0.85rem;color:var(--slate-600);margin-bottom:4px"><strong>Slot:</strong> ' + t.time_slot + '</p>' : '') +
+    (t.ipc_critical ? '<p style="font-size:0.85rem;color:var(--purple-600);font-weight:600;margin-bottom:12px">&#9888; IPC Critical</p>' : '<div style="height:12px"></div>') +
+    '<div class="form-group"><label class="form-label">Note (optional)</label><textarea class="form-textarea" id="modal-note" placeholder="Add a note..."></textarea></div>' +
+    '<div style="display:flex;gap:8px"><button class="btn btn-success btn-block btn-lg" onclick="completeTaskWithNote(\'' + id + '\')">&#10003; Mark Done</button>' +
+    '<button class="btn btn-warning" onclick="closeModal();openIssueModal(\'' + (t.room_id||'') + '\')">&#9888; Flag</button></div>'
+  );
+}
+
+function openIssueModal(roomId) {
+  openModal(
+    '<div class="modal-head"><h3>Report Issue</h3><button class="modal-close" onclick="closeModal()">&#10005;</button></div>' +
+    '<div class="form-group"><label class="form-label">Category</label><select class="form-select" id="issue-cat"><option value="damage">Damage</option><option value="stock_out">Stock Out</option><option value="access_issue">Access Issue</option></select></div>' +
+    '<div class="form-group"><label class="form-label">Room/Area</label><input class="form-input" id="issue-room" value="' + (roomId||'') + '" placeholder="e.g. room_3"></div>' +
+    '<div class="form-group"><label class="form-label">Description</label><textarea class="form-textarea" id="issue-desc" placeholder="Describe the issue..."></textarea></div>' +
+    '<button class="btn btn-primary btn-block btn-lg" onclick="submitIssue()">Submit Issue</button>'
+  );
+}
+
+
+// ============ RENDER: LOGIN ============
 function renderLogin() {
-  return `
-    <div class="login-screen">
-      <div class="login-card">
-        <div class="login-logo">🏠</div>
-        <div class="login-title">Glebe House</div>
-        <div class="login-subtitle">Housekeeping Compliance System</div>
-        <div class="pin-display">
-          <div class="pin-dot" id="dot0"></div>
-          <div class="pin-dot" id="dot1"></div>
-          <div class="pin-dot" id="dot2"></div>
-          <div class="pin-dot" id="dot3"></div>
-        </div>
-        <div class="pin-pad">
-          <button class="pin-key" onclick="pinPress('1')">1</button>
-          <button class="pin-key" onclick="pinPress('2')">2</button>
-          <button class="pin-key" onclick="pinPress('3')">3</button>
-          <button class="pin-key" onclick="pinPress('4')">4</button>
-          <button class="pin-key" onclick="pinPress('5')">5</button>
-          <button class="pin-key" onclick="pinPress('6')">6</button>
-          <button class="pin-key" onclick="pinPress('7')">7</button>
-          <button class="pin-key" onclick="pinPress('8')">8</button>
-          <button class="pin-key" onclick="pinPress('9')">9</button>
-          <button class="pin-key action" onclick="pinClear()">Clear</button>
-          <button class="pin-key" onclick="pinPress('0')">0</button>
-          <button class="pin-key action" onclick="pinBackspace()">&#9003;</button>
-        </div>
-        <div class="login-error" id="loginError"></div>
-      </div>
-    </div>
-  `;
+  return '<div class="login-page"><div class="login-card">' +
+    '<div class="login-brand"><div class="login-brand-icon">&#127968;</div><h1>Glebe House</h1><p>Housekeeping Compliance System</p></div>' +
+    '<div class="pin-dots"><div class="pin-dot" id="d0"></div><div class="pin-dot" id="d1"></div><div class="pin-dot" id="d2"></div><div class="pin-dot" id="d3"></div></div>' +
+    '<div class="pin-grid">' +
+    [1,2,3,4,5,6,7,8,9].map(n => '<button class="pin-btn" onclick="pinKey(\'' + n + '\')">' + n + '</button>').join('') +
+    '<button class="pin-btn fn" onclick="pinClear()">Clear</button>' +
+    '<button class="pin-btn" onclick="pinKey(\'0\')">0</button>' +
+    '<button class="pin-btn fn" onclick="pinBack()">&#9003;</button>' +
+    '</div>' +
+    '<div class="login-error" id="pin-error"></div>' +
+    '<div class="login-hint">Demo PINs: 1234 (Staff) &bull; 5678 (Supervisor) &bull; 6789 (Manager)</div>' +
+    '</div></div>';
 }
 
-let pinValue = '';
-
-function pinPress(digit) {
+function pinKey(d) {
   if (pinValue.length >= 4) return;
-  pinValue += digit;
-  updatePinDots();
+  pinValue += d;
+  updateDots();
   if (pinValue.length === 4) {
     setTimeout(async () => {
-      const result = await login(pinValue);
-      if (!result) {
-        document.getElementById('loginError').textContent = 'Invalid PIN. Try again.';
+      const ok = await doLogin(pinValue);
+      if (!ok) {
+        const el = document.getElementById('pin-error');
+        if (el) el.textContent = 'Invalid PIN. Try again.';
         pinValue = '';
-        updatePinDots();
+        updateDots();
       }
-    }, 200);
+    }, 250);
   }
 }
+function pinClear() { pinValue = ''; updateDots(); const e = document.getElementById('pin-error'); if(e) e.textContent=''; }
+function pinBack() { pinValue = pinValue.slice(0,-1); updateDots(); }
+function updateDots() { for(let i=0;i<4;i++){const el=document.getElementById('d'+i);if(el)el.className='pin-dot'+(i<pinValue.length?' active':'');} }
 
-function pinClear() {
-  pinValue = '';
-  updatePinDots();
-  const err = document.getElementById('loginError');
-  if (err) err.textContent = '';
+
+// ============ RENDER: APP SHELL ============
+function shell(content) {
+  const u = state.user;
+  const isManager = ['supervisor','manager','auditor'].includes(u?.role);
+  const v = state.view;
+  return '<div class="app-layout">' +
+    '<header class="app-topbar"><div class="topbar-left"><span>&#127968;</span><h1>Glebe House</h1></div>' +
+    '<div class="topbar-right"><div class="topbar-user"><div class="topbar-avatar">' + esc(u?.initials||'?') + '</div><div><div class="topbar-name">' + esc(u?.name||'') + '</div><div class="topbar-role">' + esc(u?.role||'') + '</div></div></div>' +
+    '<button class="btn-logout" onclick="doLogout()">Logout</button></div></header>' +
+    '<nav class="app-nav">' +
+    navBtn('tasks', '&#128203;', 'Tasks', v) +
+    navBtn('issues', '&#9888;', 'Issues', v) +
+    (isManager ? navBtn('dashboard', '&#128202;', 'Dashboard', v) : '') +
+    navBtn('history', '&#128340;', 'History', v) +
+    '</nav>' +
+    '<main class="app-content">' + content + '</main></div>';
 }
 
-function pinBackspace() {
-  pinValue = pinValue.slice(0, -1);
-  updatePinDots();
-}
-
-function updatePinDots() {
-  for (let i = 0; i < 4; i++) {
-    const dot = document.getElementById(`dot${i}`);
-    if (dot) dot.className = `pin-dot ${i < pinValue.length ? 'filled' : ''}`;
-  }
-}
-
-
-// ==========================================
-// RENDER - APP SHELL (Header + Nav)
-// ==========================================
-
-function renderAppShell(content) {
-  const isManager = ['supervisor', 'manager', 'auditor'].includes(state.user?.role);
-  
-  return `
-    <div class="app-header">
-      <h1>🏠 Glebe House</h1>
-      <div class="header-user">
-        <div class="header-avatar">${state.user?.initials || '?'}</div>
-        <button class="header-logout" onclick="logout()">Logout</button>
-      </div>
-    </div>
-    <nav class="bottom-nav">
-      <button class="nav-item ${state.currentView === 'tasks' ? 'active' : ''}" onclick="navigateTo('tasks')">
-        <span class="nav-icon">📋</span>
-        <span>Tasks</span>
-      </button>
-      <button class="nav-item ${state.currentView === 'issues' ? 'active' : ''}" onclick="navigateTo('issues')">
-        <span class="nav-icon">⚠️</span>
-        <span>Issues</span>
-      </button>
-      ${isManager ? `
-      <button class="nav-item ${state.currentView === 'dashboard' ? 'active' : ''}" onclick="navigateTo('dashboard')">
-        <span class="nav-icon">📊</span>
-        <span>Dashboard</span>
-      </button>
-      ` : ''}
-      <button class="nav-item ${state.currentView === 'history' ? 'active' : ''}" onclick="navigateTo('history')">
-        <span class="nav-icon">🕐</span>
-        <span>History</span>
-      </button>
-    </nav>
-    <div class="content">
-      ${content}
-    </div>
-  `;
+function navBtn(id, icon, label, active) {
+  return '<button class="nav-btn' + (active===id?' active':'') + '" onclick="navigate(\'' + id + '\')">' +
+    '<span class="nav-icon">' + icon + '</span><span class="nav-label">' + label + '</span></button>';
 }
 
 
-// ==========================================
-// RENDER - TASKS VIEW (Staff)
-// ==========================================
-
+// ============ RENDER: TASKS ============
 function renderTasks() {
-  if (!state.tasks.length) {
-    return renderAppShell(`
-      <div class="empty-state">
-        <div class="empty-state-icon">✨</div>
-        <div class="empty-state-text">No tasks assigned for today</div>
-      </div>
-    `);
-  }
+  const tasks = state.tasks;
+  if (!tasks.length) return shell('<div class="empty-state"><div class="empty-icon">&#10024;</div><div class="empty-text">Loading tasks...</div></div>');
 
-  // Group tasks by template/category
-  const grouped = {};
-  state.tasks.forEach(t => {
-    const key = t.template_id;
-    if (!grouped[key]) grouped[key] = { name: t.template_name, tasks: [], icon: getTemplateIcon(key) };
-    grouped[key].tasks.push(t);
+  // Group by template
+  const groups = {};
+  tasks.forEach(t => {
+    if (!groups[t.template_id]) groups[t.template_id] = { name: t.template_name, icon: tplIcon(t.template_id), tasks: [] };
+    groups[t.template_id].tasks.push(t);
   });
 
-  // Further group room tasks by room
-  let html = '';
-  
-  Object.entries(grouped).forEach(([templateId, group]) => {
-    const total = group.tasks.length;
-    const done = group.tasks.filter(t => t.status === 'done' || t.status === 'excused').length;
-    
-    html += `
-      <div class="section-header">
-        <span class="section-icon">${group.icon}</span>
-        <span class="section-title">${group.name}</span>
-        <span class="section-badge">${done}/${total}</span>
-      </div>
-    `;
+  let html = '<div class="page-header"><div><h2>Today\'s Tasks</h2><div class="page-subtitle">' + new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'}) + '</div></div></div>';
 
-    // Group by room within template
+  Object.entries(groups).forEach(([tid, g]) => {
+    const done = g.tasks.filter(t => t.status==='done'||t.status==='excused').length;
+    html += '<div class="section"><div class="section-title"><span class="icon">' + g.icon + '</span><h3>' + esc(g.name) + '</h3><span class="section-count">' + done + '/' + g.tasks.length + '</span></div>';
+
+    // Sub-group by room
     const byRoom = {};
-    group.tasks.forEach(t => {
-      const roomKey = t.room_id || 'whole_home';
-      if (!byRoom[roomKey]) byRoom[roomKey] = { name: t.room_name, tasks: [] };
-      byRoom[roomKey].tasks.push(t);
-    });
+    g.tasks.forEach(t => { const k = t.room_id||'_home'; if(!byRoom[k]) byRoom[k]={name:t.room_name,tasks:[]}; byRoom[k].tasks.push(t); });
 
-    Object.entries(byRoom).forEach(([roomId, room]) => {
-      const roomDone = room.tasks.filter(t => t.status === 'done' || t.status === 'excused').length;
-      const roomTotal = room.tasks.length;
-      const pct = Math.round((roomDone / roomTotal) * 100);
-      const color = pct >= 80 ? 'green' : pct >= 50 ? 'amber' : 'red';
-
-      html += `<div class="room-group">`;
-      html += `
-        <div class="room-group-header" onclick="toggleRoom('${roomId}')">
-          <h3>${room.name}</h3>
-          <div class="room-progress">
-            <div class="progress-bar"><div class="progress-fill ${color}" style="width:${pct}%"></div></div>
-            <span class="progress-text">${roomDone}/${roomTotal}</span>
-          </div>
-        </div>
-      `;
-      html += `<div class="room-tasks" id="room-${roomId}">`;
-      room.tasks.forEach(t => {
-        const statusClass = t.ipc_critical ? 'ipc' : t.status;
-        html += `
-          <div class="task-card ${statusClass}" onclick="handleTaskClick('${t.id}', '${t.status}')">
-            <div class="task-check">${t.status === 'done' ? '✓' : ''}</div>
-            <div class="task-info">
-              <div class="task-name">${t.task_name}</div>
-              <div class="task-meta">
-                ${t.time_slot ? `<span class="badge-ipc task-badge">${t.time_slot}</span> ` : ''}
-                ${t.ipc_critical ? '<span class="badge-ipc task-badge">IPC</span> ' : ''}
-                ${t.completed_at ? `Done at ${new Date(t.completed_at).toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit'})}` : ''}
-              </div>
-            </div>
-            ${t.status === 'pending' ? '<button class="btn btn-success btn-sm" onclick="event.stopPropagation();completeTask(\''+t.id+'\')">Done</button>' : ''}
-            ${t.status === 'done' ? '<span class="task-badge badge-done">Done</span>' : ''}
-            ${t.status === 'missed' ? '<span class="task-badge badge-missed">Missed</span>' : ''}
-          </div>
-        `;
-      });
-      html += `</div></div>`;
+    Object.entries(byRoom).forEach(([rid, rm]) => {
+      const rd = rm.tasks.filter(t=>t.status==='done'||t.status==='excused').length;
+      const pct = Math.round(rd/rm.tasks.length*100);
+      const cls = pct>=80?'high':pct>=50?'mid':'low';
+      html += '<div class="room-group"><div class="room-header" onclick="toggleRoom(\'' + rid + '\')">' +
+        '<h4>' + esc(rm.name) + '</h4><div class="room-progress"><div class="progress-bar"><div class="progress-fill ' + cls + '" style="width:' + pct + '%"></div></div><span class="room-pct">' + pct + '%</span></div></div>';
+      html += '<div class="room-tasks" id="rt-' + rid + '">';
+      html += '<div class="task-list">';
+      rm.tasks.forEach(t => { html += taskCard(t); });
+      html += '</div></div></div>';
     });
+    html += '</div>';
   });
 
-  return renderAppShell(html);
-}
-
-function getTemplateIcon(templateId) {
-  const icons = {
-    'tpl_daily_room': '🛏️',
-    'tpl_daily_communal': '🛋️',
-    'tpl_door_handles': '🚪',
-    'tpl_weekly_room': '📅',
-    'tpl_quarterly_deep': '🗓️'
-  };
-  return icons[templateId] || '📋';
-}
-
-function toggleRoom(roomId) {
-  const el = document.getElementById(`room-${roomId}`);
-  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
-}
-
-function handleTaskClick(taskId, status) {
-  if (status === 'pending') {
-    showTaskModal(taskId);
-  }
+  return shell(html);
 }
 
 
-// ==========================================
-// TASK DETAIL MODAL
-// ==========================================
-
-function showTaskModal(taskId) {
-  const task = state.tasks.find(t => t.id === taskId);
-  if (!task) return;
-
-  showModal(`
-    <div class="modal-header">
-      <h2>${task.task_name}</h2>
-      <button class="modal-close" onclick="closeModal()">✕</button>
-    </div>
-    <div style="margin-bottom:16px;">
-      <div class="task-meta" style="font-size:0.9rem;color:var(--gray-600);">
-        <p><strong>Room:</strong> ${task.room_name}</p>
-        <p><strong>Checklist:</strong> ${task.template_name}</p>
-        ${task.time_slot ? `<p><strong>Time Slot:</strong> ${task.time_slot}</p>` : ''}
-        ${task.ipc_critical ? '<p style="color:#7c3aed;font-weight:600;">⚠️ IPC Critical Task</p>' : ''}
-      </div>
-    </div>
-    <div class="form-group">
-      <label class="form-label">Note (optional)</label>
-      <textarea class="form-textarea" id="taskNote" placeholder="Add a note..."></textarea>
-    </div>
-    <div style="display:flex;gap:8px;">
-      <button class="btn btn-success btn-block btn-lg" onclick="completeTaskWithNote('${taskId}')">
-        ✓ Mark as Done
-      </button>
-      <button class="btn btn-warning btn-sm" onclick="flagFromTask('${taskId}','${task.room_id || ''}')">
-        ⚠️ Flag
-      </button>
-    </div>
-  `);
+function taskCard(t) {
+  const cls = t.ipc_critical ? 'ipc' : 'status-' + t.status;
+  return '<div class="task-item ' + cls + '" onclick="openTaskModal(\'' + t.id + '\')">' +
+    '<div class="task-checkbox">' + (t.status==='done'?'&#10003;':'') + '</div>' +
+    '<div class="task-body"><div class="task-name">' + esc(t.task_name) + '</div>' +
+    '<div class="task-meta">' +
+    (t.time_slot ? '<span class="badge badge-' + t.time_slot.toLowerCase() + '">' + t.time_slot + '</span>' : '') +
+    (t.ipc_critical ? '<span class="badge badge-ipc">IPC</span>' : '') +
+    (t.status==='done'&&t.completed_at ? '<span>' + fmtTime(t.completed_at) + '</span>' : '') +
+    '</div></div>' +
+    '<div class="task-action">' +
+    (t.status==='pending' ? '<button class="btn btn-success btn-sm" onclick="completeTask(\'' + t.id + '\')">Done</button>' : '') +
+    (t.status==='done' ? '<span class="badge badge-done">Done</span>' : '') +
+    (t.status==='missed' ? '<span class="badge badge-missed">Missed</span>' : '') +
+    (t.status==='excused' ? '<span class="badge badge-excused">Excused</span>' : '') +
+    '</div></div>';
 }
 
-async function completeTaskWithNote(taskId) {
-  const note = document.getElementById('taskNote')?.value || '';
-  const result = await api(`/api/tasks/${taskId}/complete`, {
-    method: 'POST',
-    body: JSON.stringify({ note })
-  });
-  if (result) {
-    showToast('Task completed!', 'success');
-    closeModal();
-    loadTasks();
-  }
+function tplIcon(id) {
+  const m = {'tpl_daily_room':'&#128716;','tpl_daily_communal':'&#128715;','tpl_door_handles':'&#128682;','tpl_weekly_room':'&#128197;','tpl_quarterly_deep':'&#128467;'};
+  return m[id]||'&#128203;';
 }
 
-function flagFromTask(taskId, roomId) {
-  closeModal();
-  showIssueModal(roomId);
+function toggleRoom(id) {
+  const el = document.getElementById('rt-' + id);
+  if (el) el.classList.toggle('open');
 }
 
 
-// ==========================================
-// RENDER - ISSUES VIEW
-// ==========================================
-
+// ============ RENDER: ISSUES ============
 function renderIssues() {
-  const isManager = ['supervisor', 'manager', 'maintenance'].includes(state.user?.role);
-  
-  let html = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-      <h2>Issues & Flags</h2>
-      <button class="btn btn-primary btn-sm" onclick="showIssueModal()">+ Report Issue</button>
-    </div>
-  `;
+  const issues = state.issues;
+  const canManage = ['supervisor','manager','maintenance'].includes(state.user?.role);
 
-  // Tab filter
-  html += `
-    <div class="tabs">
-      <button class="tab active" onclick="filterIssues('all')">All</button>
-      <button class="tab" onclick="filterIssues('open')">Open</button>
-      <button class="tab" onclick="filterIssues('in_progress')">In Progress</button>
-      <button class="tab" onclick="filterIssues('resolved')">Resolved</button>
-    </div>
-  `;
+  let html = '<div class="page-header"><div><h2>Issues & Flags</h2><div class="page-subtitle">' + issues.length + ' total issues</div></div>' +
+    '<button class="btn btn-primary btn-sm" onclick="openIssueModal()">+ Report</button></div>';
 
-  if (!state.issues.length) {
-    html += `<div class="empty-state"><div class="empty-state-icon">✅</div><div class="empty-state-text">No issues reported</div></div>`;
+  html += '<div class="tabs"><button class="tab-btn active" onclick="filterIssues(\'all\',this)">All</button>' +
+    '<button class="tab-btn" onclick="filterIssues(\'open\',this)">Open</button>' +
+    '<button class="tab-btn" onclick="filterIssues(\'in_progress\',this)">In Progress</button>' +
+    '<button class="tab-btn" onclick="filterIssues(\'resolved\',this)">Resolved</button></div>';
+
+  if (!issues.length) {
+    html += '<div class="empty-state"><div class="empty-icon">&#9989;</div><div class="empty-text">No issues reported</div></div>';
   } else {
-    state.issues.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
-    state.issues.forEach(issue => {
-      html += `
-        <div class="issue-card ${issue.status}" id="issue-${issue.id}">
-          <div class="issue-header">
-            <span class="issue-category">${issue.category}</span>
-            <span class="issue-status ${issue.status}">${issue.status.replace('_', ' ')}</span>
-          </div>
-          <div class="issue-description">${issue.description}</div>
-          <div class="issue-meta">
-            ${issue.room_name ? `📍 ${issue.room_name}` : ''} &bull;
-            Reported by ${issue.raised_by_name} &bull;
-            ${new Date(issue.created_at).toLocaleDateString('en-GB')}
-            ${issue.routed_to_name ? ` &bull; Assigned: ${issue.routed_to_name}` : ''}
-          </div>
-          ${isManager && issue.status !== 'resolved' ? `
-            <div style="margin-top:10px;display:flex;gap:8px;">
-              ${issue.status === 'open' ? `<button class="btn btn-warning btn-sm" onclick="updateIssueStatus('${issue.id}','in_progress')">Start Work</button>` : ''}
-              <button class="btn btn-success btn-sm" onclick="updateIssueStatus('${issue.id}','resolved')">Resolve</button>
-            </div>
-          ` : ''}
-        </div>
-      `;
+    const sorted = [...issues].sort((a,b) => (b.created_at||'').localeCompare(a.created_at||''));
+    sorted.forEach(i => {
+      html += '<div class="issue-card status-' + i.status + '" data-status="' + i.status + '">' +
+        '<div class="issue-top"><span class="badge badge-' + (i.status==='open'?'missed':i.status==='in_progress'?'pending':'done') + '">' + i.status.replace('_',' ') + '</span>' +
+        '<span class="badge">' + esc(i.category) + '</span></div>' +
+        '<div class="issue-desc">' + esc(i.description) + '</div>' +
+        '<div class="issue-footer"><span>&#128205; ' + esc(i.room_name||'N/A') + '</span><span>By ' + esc(i.raised_by_name) + '</span><span>' + fmtDate(i.created_at) + '</span>' +
+        (i.routed_to_name ? '<span>&#8594; ' + esc(i.routed_to_name) + '</span>' : '') + '</div>';
+      if (canManage && i.status !== 'resolved') {
+        html += '<div class="issue-actions">' +
+          (i.status==='open' ? '<button class="btn btn-warning btn-sm" onclick="changeIssueStatus(\'' + i.id + '\',\'in_progress\')">Start</button>' : '') +
+          '<button class="btn btn-success btn-sm" onclick="changeIssueStatus(\'' + i.id + '\',\'resolved\')">Resolve</button></div>';
+      }
+      html += '</div>';
     });
   }
-
-  return renderAppShell(html);
+  return shell(html);
 }
 
-function filterIssues(status) {
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  event.target.classList.add('active');
-  document.querySelectorAll('.issue-card').forEach(card => {
-    if (status === 'all') { card.style.display = 'block'; }
-    else { card.style.display = card.classList.contains(status) ? 'block' : 'none'; }
+function filterIssues(status, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.issue-card').forEach(c => {
+    c.style.display = (status==='all' || c.dataset.status===status) ? '' : 'none';
   });
 }
 
 
-// ==========================================
-// ISSUE REPORT MODAL
-// ==========================================
-
-function showIssueModal(roomId) {
-  showModal(`
-    <div class="modal-header">
-      <h2>Report an Issue</h2>
-      <button class="modal-close" onclick="closeModal()">✕</button>
-    </div>
-    <div class="form-group">
-      <label class="form-label">Category</label>
-      <select class="form-select" id="issueCategory">
-        <option value="damage">Damage</option>
-        <option value="stock_out">Stock Out</option>
-        <option value="access_issue">Access Issue</option>
-      </select>
-    </div>
-    <div class="form-group">
-      <label class="form-label">Room/Area (optional)</label>
-      <input class="form-input" id="issueRoom" value="${roomId || ''}" placeholder="e.g. room_3 or area_lounge">
-    </div>
-    <div class="form-group">
-      <label class="form-label">Description</label>
-      <textarea class="form-textarea" id="issueDesc" placeholder="Describe the issue..."></textarea>
-    </div>
-    <button class="btn btn-primary btn-block btn-lg" onclick="handleIssueSubmit()">
-      Submit Issue
-    </button>
-  `);
-}
-
-function handleIssueSubmit() {
-  const category = document.getElementById('issueCategory').value;
-  const room_id = document.getElementById('issueRoom').value || null;
-  const description = document.getElementById('issueDesc').value;
-  if (!description) { showToast('Please add a description', 'warning'); return; }
-  submitIssue({ category, room_id, description });
-}
-
-
-// ==========================================
-// RENDER - DASHBOARD (Manager/Supervisor)
-// ==========================================
-
+// ============ RENDER: DASHBOARD ============
 function renderDashboard() {
-  if (!state.dashboard) {
-    return renderAppShell(`<div class="empty-state"><div class="empty-state-icon">📊</div><div class="empty-state-text">Loading dashboard...</div></div>`);
-  }
-
   const d = state.dashboard;
-  const compColor = d.compliance_pct >= 80 ? 'green' : d.compliance_pct >= 50 ? 'amber' : 'red';
-  const ipcColor = d.ipc.compliance_pct >= 80 ? 'green' : d.ipc.compliance_pct >= 50 ? 'amber' : 'red';
+  if (!d) return shell('<div class="empty-state"><div class="empty-icon">&#128202;</div><div class="empty-text">Loading dashboard...</div></div>');
 
-  let html = `<h2 style="margin-bottom:16px;">Compliance Dashboard</h2>`;
+  const cc = d.compliance_pct>=80?'green':d.compliance_pct>=50?'amber':'red';
+  const ic = d.ipc.compliance_pct>=80?'green':d.ipc.compliance_pct>=50?'amber':'red';
 
-  // Stats cards
-  html += `
-    <div class="dashboard-grid">
-      <div class="stat-card">
-        <div class="stat-value ${compColor}">${d.compliance_pct}%</div>
-        <div class="stat-label">Today's Compliance</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-value blue">${d.today.done}</div>
-        <div class="stat-label">Tasks Done</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-value amber">${d.today.pending}</div>
-        <div class="stat-label">Pending</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-value ${ipcColor}">${d.ipc.compliance_pct}%</div>
-        <div class="stat-label">IPC Compliance</div>
-      </div>
-    </div>
-  `;
+  let html = '<div class="page-header"><h2>Compliance Dashboard</h2></div>';
 
-  // 7-day trend chart
-  html += `
-    <div class="chart-container">
-      <div class="chart-title">7-Day Compliance Trend</div>
-      <div class="bar-chart">
-  `;
-  const maxTasks = Math.max(...d.days.map(day => day.total), 1);
+  // Stats
+  html += '<div class="stats-grid">' +
+    statCard(d.compliance_pct + '%', "Today's Compliance", 'stat-' + cc) +
+    statCard(d.today.done, 'Completed', 'stat-blue') +
+    statCard(d.today.pending, 'Pending', 'stat-amber') +
+    statCard(d.ipc.compliance_pct + '%', 'IPC Compliance', 'stat-' + ic) +
+    '</div>';
+
+  // 7-day chart
+  html += '<div class="card"><div class="card-title">7-Day Trend</div><div class="chart-bars">';
+  const max = Math.max(...d.days.map(x=>x.total), 1);
   d.days.forEach(day => {
-    const height = Math.max((day.done / maxTasks) * 100, 5);
-    const color = day.compliance_pct >= 80 ? 'var(--success)' : day.compliance_pct >= 50 ? 'var(--warning)' : 'var(--danger)';
-    const dayLabel = new Date(day.date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short' });
-    html += `
-      <div class="bar-group">
-        <div class="bar-value">${day.compliance_pct}%</div>
-        <div style="flex:1;display:flex;align-items:flex-end;width:100%;">
-          <div class="bar" style="height:${height}%;background:${color};width:100%;"></div>
-        </div>
-        <div class="bar-label">${dayLabel}</div>
-      </div>
-    `;
+    const h = Math.max((day.done/max)*100, 4);
+    const cls = day.compliance_pct>=80?'high':day.compliance_pct>=50?'mid':'low';
+    const lbl = new Date(day.date+'T12:00:00').toLocaleDateString('en-GB',{weekday:'short'});
+    html += '<div class="chart-col"><div class="chart-val">' + day.compliance_pct + '%</div><div class="chart-bar-wrap"><div class="chart-bar ' + cls + '" style="height:' + h + '%"></div></div><div class="chart-label">' + lbl + '</div></div>';
   });
-  html += `</div></div>`;
+  html += '</div></div>';
 
-  // Room compliance heatmap
-  html += `
-    <div class="heatmap">
-      <div class="heatmap-title">Room Compliance (Today)</div>
-      <div class="heatmap-grid" style="grid-template-columns:repeat(auto-fill, minmax(60px, 1fr));">
-  `;
-  d.roomCompliance.forEach(room => {
-    const color = room.compliance_pct >= 80 ? 'green' : room.compliance_pct >= 50 ? 'amber' : 'red';
-    html += `<div class="heatmap-cell ${color}" title="${room.room_name}: ${room.compliance_pct}%">${room.room_name.length > 4 ? room.room_name.substring(0,3) : room.room_name}<br>${room.compliance_pct}%</div>`;
+  // Room heatmap
+  html += '<div class="card"><div class="card-title">Room Compliance</div><div class="heatmap-grid">';
+  d.roomCompliance.forEach(r => {
+    const cls = r.compliance_pct>=80?'high':r.compliance_pct>=50?'mid':r.compliance_pct>0?'low':'none';
+    const name = r.room_name.length > 5 ? r.room_name.substring(0,4) : r.room_name;
+    html += '<div class="heatmap-cell ' + cls + '">' + r.compliance_pct + '%<div class="room-label">' + esc(name) + '</div></div>';
   });
-  html += `</div></div>`;
+  html += '</div></div>';
 
-  // Staff performance table
-  html += `
-    <div style="margin-top:16px;">
-      <h3 style="margin-bottom:12px;">Staff Performance (Today)</h3>
-      <table class="data-table">
-        <thead><tr><th>Staff</th><th>Assigned</th><th>Completed</th><th>Rate</th></tr></thead>
-        <tbody>
-  `;
+  // Staff table
+  html += '<div class="card"><div class="card-title">Staff Performance</div><table class="data-table"><thead><tr><th>Staff</th><th>Assigned</th><th>Done</th><th>Rate</th></tr></thead><tbody>';
   d.staffPerformance.forEach(s => {
-    const color = s.completion_pct >= 80 ? 'green' : s.completion_pct >= 50 ? 'amber' : 'red';
-    html += `<tr><td><strong>${s.name}</strong> (${s.initials})</td><td>${s.total_assigned}</td><td>${s.completed}</td><td><span class="stat-value ${color}" style="font-size:1rem;">${s.completion_pct}%</span></td></tr>`;
+    const cls = s.completion_pct>=80?'green':s.completion_pct>=50?'amber':'red';
+    html += '<tr><td><strong>' + esc(s.name) + '</strong> (' + esc(s.initials) + ')</td><td>' + s.total_assigned + '</td><td>' + s.completed + '</td><td style="color:var(--' + cls + '-600);font-weight:700">' + s.completion_pct + '%</td></tr>';
   });
-  html += `</tbody></table></div>`;
+  html += '</tbody></table></div>';
 
-  // Open issues count
-  html += `
-    <div class="stat-card" style="margin-top:16px;">
-      <div class="stat-value ${d.openIssues > 0 ? 'red' : 'green'}">${d.openIssues}</div>
-      <div class="stat-label">Open Issues</div>
-    </div>
-  `;
+  // Open issues
+  html += statCard(d.openIssues, 'Open Issues', d.openIssues>0?'stat-red':'stat-green');
 
-  return renderAppShell(html);
+  return shell(html);
+}
+
+function statCard(val, label, cls) {
+  return '<div class="stat-card ' + (cls||'') + '"><div class="value">' + val + '</div><div class="label">' + label + '</div></div>';
 }
 
 
-// ==========================================
-// RENDER - HISTORY VIEW
-// ==========================================
-
+// ============ RENDER: HISTORY ============
 function renderHistory() {
-  // Show completed tasks from today
-  const completedTasks = state.tasks.filter(t => t.status === 'done');
-  
-  let html = `<h2 style="margin-bottom:16px;">My History (Today)</h2>`;
-  
-  if (!completedTasks.length) {
-    html += `<div class="empty-state"><div class="empty-state-icon">📝</div><div class="empty-state-text">No completed tasks yet today</div></div>`;
-  } else {
-    completedTasks.forEach(t => {
-      html += `
-        <div class="task-card done">
-          <div class="task-check">✓</div>
-          <div class="task-info">
-            <div class="task-name">${t.task_name}</div>
-            <div class="task-meta">
-              ${t.room_name} &bull; 
-              ${t.completed_at ? new Date(t.completed_at).toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit'}) : ''}
-              ${t.note ? ` &bull; Note: ${t.note}` : ''}
-            </div>
-          </div>
-          <span class="task-badge badge-done">Done</span>
-        </div>
-      `;
-    });
-  }
+  const done = state.tasks.filter(t => t.status === 'done');
+  let html = '<div class="page-header"><h2>My History</h2><div class="page-subtitle">Completed today</div></div>';
 
-  return renderAppShell(html);
+  if (!done.length) {
+    html += '<div class="empty-state"><div class="empty-icon">&#128221;</div><div class="empty-text">No completed tasks yet today</div></div>';
+  } else {
+    html += '<div class="task-list">';
+    done.forEach(t => {
+      html += '<div class="task-item status-done">' +
+        '<div class="task-checkbox">&#10003;</div>' +
+        '<div class="task-body"><div class="task-name">' + esc(t.task_name) + '</div>' +
+        '<div class="task-meta"><span>' + esc(t.room_name) + '</span>' +
+        (t.completed_at ? '<span>' + fmtTime(t.completed_at) + '</span>' : '') +
+        (t.note ? '<span>&#128172; ' + esc(t.note) + '</span>' : '') +
+        '</div></div><span class="badge badge-done">Done</span></div>';
+    });
+    html += '</div>';
+  }
+  return shell(html);
 }
 
 
-// ==========================================
-// MAIN RENDER FUNCTION
-// ==========================================
+// ============ UTILITIES ============
+function esc(s) { if (!s) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function fmtTime(iso) { try { return new Date(iso).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); } catch { return ''; } }
+function fmtDate(iso) { try { return new Date(iso).toLocaleDateString('en-GB',{day:'numeric',month:'short'}); } catch { return ''; } }
 
+// ============ MAIN RENDER ============
 function render() {
   const app = document.getElementById('app');
-  
-  switch (state.currentView) {
-    case 'login':
-      app.innerHTML = renderLogin();
-      pinValue = '';
-      break;
-    case 'tasks':
-      app.innerHTML = renderTasks();
-      break;
-    case 'issues':
-      app.innerHTML = renderIssues();
-      break;
-    case 'dashboard':
-      app.innerHTML = renderDashboard();
-      break;
-    case 'history':
-      app.innerHTML = renderHistory();
-      break;
-    default:
-      app.innerHTML = renderLogin();
+  switch(state.view) {
+    case 'login': app.innerHTML = renderLogin(); pinValue = ''; break;
+    case 'tasks': app.innerHTML = renderTasks(); break;
+    case 'issues': app.innerHTML = renderIssues(); break;
+    case 'dashboard': app.innerHTML = renderDashboard(); break;
+    case 'history': app.innerHTML = renderHistory(); break;
+    default: app.innerHTML = renderLogin();
   }
 }
 
-// ==========================================
-// APP INITIALIZATION
-// ==========================================
-
+// ============ INIT ============
 document.addEventListener('DOMContentLoaded', () => {
-  if (restoreSession()) {
-    navigateTo('tasks');
-  } else {
-    navigateTo('login');
-  }
+  if (restoreSession()) { navigate('tasks'); }
+  else { navigate('login'); }
 });
