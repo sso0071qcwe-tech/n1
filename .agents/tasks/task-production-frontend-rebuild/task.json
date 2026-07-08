@@ -1,0 +1,7 @@
+{
+  "task_id": "task-production-frontend-rebuild",
+  "task_description": "Complete rewrite of the frontend to display checklist data in TABLE/GRID format matching the actual paper forms from Merling Care Limited - Glebe House Care Home. Must show previous data (past weeks with staff initials), current week highlighted and editable, per-room navigation, pink/magenta branding, and production-quality design that replaces the paper binder.",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002"],
+  "blocked_reason": null
+}
