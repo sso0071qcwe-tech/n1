@@ -2,7 +2,7 @@
   "id": "FEAT-001",
   "type": "feat",
   "description": "Add new backend API endpoints to serve checklist data in a grid/table format matching the paper forms (weekly W1-W5 per room per month, quarterly by month per room, daily Mon-Sun per room). The current API only returns tasks for a single date. New endpoints must return structured grid data showing all weeks/months with historical initials filled in.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Add GET /api/checklists/weekly/:roomId endpoint in backend/src/routes.js that returns weekly tasks for a given room for the current month. Response: { room, month, year, tasks: [{name, w1: {done, initials, date}, w2: {...}, w3: {...}, w4: {...}, w5: {...}}] }. Determine week number within month by date. Look up completed_by staff initials from the staff table.",
     "Add GET /api/checklists/quarterly/:roomId endpoint that returns quarterly deep clean tasks for a room for the current year. Response: { room, year, tasks: [{name, entries: [{month, initials, date}]}] }. Match template_id 'tpl_quarterly_deep'.",
@@ -24,5 +24,5 @@
     "Existing test.js tests should still pass (no breaking changes to existing endpoints)"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "All endpoints verified working. Quarterly seed generates data for Jan and Apr 2026 (every 3rd month that has passed). Weekly data present for current month (today + Monday within 7-day lookback). Daily data shows full Mon-Sun grid with past days filled. All 4 endpoints properly reject unauthenticated requests with 401."
 }
