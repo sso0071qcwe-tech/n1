@@ -491,4 +491,324 @@ route('GET', '/api/reports/export', (req) => {
   return { status: 200, data: { startDate, endDate, totalTasks: report.length, report } };
 });
 
+// ==========================================
+// CHECKLIST GRID ENDPOINTS
+// ==========================================
+
+// GET /api/checklists/weekly/:roomId - Weekly tasks grid (W1-W5) for a room in a given month
+route('GET', '/api/checklists/weekly/:roomId', (req) => {
+  const user = requireAuth(req);
+  if (!user) return { status: 401, data: { error: 'Unauthorized' } };
+
+  const room = findById('rooms', req.params.roomId);
+  if (!room) return { status: 404, data: { error: 'Room not found' } };
+
+  // Determine target month from query param or use current month
+  let year, month;
+  if (req.query.month && /^\d{4}-\d{2}$/.test(req.query.month)) {
+    const parts = req.query.month.split('-');
+    year = parseInt(parts[0], 10);
+    month = parseInt(parts[1], 10) - 1; // 0-indexed
+  } else {
+    const now = new Date();
+    year = now.getFullYear();
+    month = now.getMonth();
+  }
+
+  // Build date range for the month
+  const startDate = new Date(year, month, 1);
+  const endDate = new Date(year, month + 1, 0); // last day of month
+  const startStr = startDate.toISOString().split('T')[0];
+  const endStr = endDate.toISOString().split('T')[0];
+
+  // Get all weekly task instances for this room in this month
+  const instances = findWhere('taskInstances', t =>
+    t.template_id === 'tpl_weekly_room' &&
+    t.room_id === req.params.roomId &&
+    t.date >= startStr &&
+    t.date <= endStr
+  );
+
+  // Get task definitions for weekly room template
+  const taskDefs = findWhere('taskDefinitions', td => td.template_id === 'tpl_weekly_room')
+    .sort((a, b) => a.order - b.order);
+
+  // Build grid: each task has w1-w5 slots
+  const tasks = taskDefs.map(def => {
+    const taskInstances = instances.filter(i => i.task_definition_id === def.id);
+    const weekSlots = { w1: null, w2: null, w3: null, w4: null, w5: null };
+
+    taskInstances.forEach(inst => {
+      const taskDate = new Date(inst.date + 'T00:00:00');
+      const dayOfMonth = taskDate.getDate();
+      const weekNum = Math.ceil(dayOfMonth / 7); // week 1 = days 1-7, week 2 = days 8-14, etc.
+      const weekKey = `w${weekNum}`;
+      if (weekKey in weekSlots) {
+        const staff = inst.completed_by ? findById('staff', inst.completed_by) : null;
+        weekSlots[weekKey] = {
+          done: inst.status === 'done',
+          initials: staff?.initials || null,
+          date: inst.date,
+          status: inst.status
+        };
+      }
+    });
+
+    return {
+      id: def.id,
+      name: def.name,
+      order: def.order,
+      ...weekSlots
+    };
+  });
+
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'];
+
+  return {
+    status: 200,
+    data: {
+      room: { id: room.id, room_number: room.room_number, type: room.type },
+      month: monthNames[month],
+      month_number: month + 1,
+      year,
+      tasks
+    }
+  };
+});
+
+// GET /api/checklists/quarterly/:roomId - Quarterly deep clean grid for a room by year
+route('GET', '/api/checklists/quarterly/:roomId', (req) => {
+  const user = requireAuth(req);
+  if (!user) return { status: 401, data: { error: 'Unauthorized' } };
+
+  const room = findById('rooms', req.params.roomId);
+  if (!room) return { status: 404, data: { error: 'Room not found' } };
+
+  // Determine target year from query param or use current year
+  let year;
+  if (req.query.year && /^\d{4}$/.test(req.query.year)) {
+    year = parseInt(req.query.year, 10);
+  } else {
+    year = new Date().getFullYear();
+  }
+
+  const startStr = `${year}-01-01`;
+  const endStr = `${year}-12-31`;
+
+  // Get all quarterly task instances for this room in this year
+  const instances = findWhere('taskInstances', t =>
+    t.template_id === 'tpl_quarterly_deep' &&
+    t.room_id === req.params.roomId &&
+    t.date >= startStr &&
+    t.date <= endStr
+  );
+
+  // Get task definitions for quarterly template
+  const taskDefs = findWhere('taskDefinitions', td => td.template_id === 'tpl_quarterly_deep')
+    .sort((a, b) => a.order - b.order);
+
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  // Build grid: each task has entries array showing which months have data
+  const tasks = taskDefs.map(def => {
+    const taskInstances = instances.filter(i => i.task_definition_id === def.id);
+    const entries = [];
+
+    taskInstances.forEach(inst => {
+      const taskDate = new Date(inst.date + 'T00:00:00');
+      const monthIdx = taskDate.getMonth();
+      const staff = inst.completed_by ? findById('staff', inst.completed_by) : null;
+      entries.push({
+        month: monthNames[monthIdx],
+        month_number: monthIdx + 1,
+        done: inst.status === 'done',
+        initials: staff?.initials || null,
+        date: inst.date,
+        status: inst.status
+      });
+    });
+
+    // Sort entries by month
+    entries.sort((a, b) => a.month_number - b.month_number);
+
+    return {
+      id: def.id,
+      name: def.name,
+      order: def.order,
+      entries
+    };
+  });
+
+  return {
+    status: 200,
+    data: {
+      room: { id: room.id, room_number: room.room_number, type: room.type },
+      year,
+      tasks
+    }
+  };
+});
+
+// GET /api/checklists/daily/:roomId - Daily tasks grid (Mon-Sun) for a room for current week
+route('GET', '/api/checklists/daily/:roomId', (req) => {
+  const user = requireAuth(req);
+  if (!user) return { status: 401, data: { error: 'Unauthorized' } };
+
+  const room = findById('rooms', req.params.roomId);
+  if (!room) return { status: 404, data: { error: 'Room not found' } };
+
+  // Determine the week: use ?week=YYYY-MM-DD (Monday) or default to current week
+  let weekStart;
+  if (req.query.week && /^\d{4}-\d{2}-\d{2}$/.test(req.query.week)) {
+    weekStart = new Date(req.query.week + 'T00:00:00');
+  } else {
+    // Find Monday of current week
+    const now = new Date();
+    const dayOfWeek = now.getDay(); // 0=Sun, 1=Mon, ...
+    const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    weekStart = new Date(now);
+    weekStart.setDate(now.getDate() + mondayOffset);
+  }
+  weekStart.setHours(0, 0, 0, 0);
+
+  // Build 7 days starting from Monday
+  const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const weekDates = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(weekStart);
+    d.setDate(weekStart.getDate() + i);
+    weekDates.push(d.toISOString().split('T')[0]);
+  }
+
+  const startStr = weekDates[0];
+  const endStr = weekDates[6];
+
+  // Get all daily room task instances for this room in this week
+  const instances = findWhere('taskInstances', t =>
+    t.template_id === 'tpl_daily_room' &&
+    t.room_id === req.params.roomId &&
+    t.date >= startStr &&
+    t.date <= endStr
+  );
+
+  // Get task definitions for daily room template
+  const taskDefs = findWhere('taskDefinitions', td => td.template_id === 'tpl_daily_room')
+    .sort((a, b) => a.order - b.order);
+
+  // Build grid: each task has days array (Mon-Sun)
+  const tasks = taskDefs.map(def => {
+    const taskInstances = instances.filter(i => i.task_definition_id === def.id);
+    const days = weekDates.map((dateStr, idx) => {
+      const inst = taskInstances.find(i => i.date === dateStr);
+      const staff = inst?.completed_by ? findById('staff', inst.completed_by) : null;
+      return {
+        day: dayNames[idx],
+        date: dateStr,
+        done: inst ? inst.status === 'done' : false,
+        initials: staff?.initials || null,
+        status: inst?.status || null
+      };
+    });
+
+    return {
+      id: def.id,
+      name: def.name,
+      order: def.order,
+      days
+    };
+  });
+
+  return {
+    status: 200,
+    data: {
+      room: { id: room.id, room_number: room.room_number, type: room.type },
+      weekStart: startStr,
+      weekEnd: endStr,
+      tasks
+    }
+  };
+});
+
+// GET /api/checklists/daily-communal/:areaId - Daily tasks grid (Mon-Sun) for a communal area
+route('GET', '/api/checklists/daily-communal/:areaId', (req) => {
+  const user = requireAuth(req);
+  if (!user) return { status: 401, data: { error: 'Unauthorized' } };
+
+  const room = findById('rooms', req.params.areaId);
+  if (!room) return { status: 404, data: { error: 'Room not found' } };
+
+  // Determine the week: use ?week=YYYY-MM-DD (Monday) or default to current week
+  let weekStart;
+  if (req.query.week && /^\d{4}-\d{2}-\d{2}$/.test(req.query.week)) {
+    weekStart = new Date(req.query.week + 'T00:00:00');
+  } else {
+    // Find Monday of current week
+    const now = new Date();
+    const dayOfWeek = now.getDay(); // 0=Sun, 1=Mon, ...
+    const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    weekStart = new Date(now);
+    weekStart.setDate(now.getDate() + mondayOffset);
+  }
+  weekStart.setHours(0, 0, 0, 0);
+
+  // Build 7 days starting from Monday
+  const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const weekDates = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(weekStart);
+    d.setDate(weekStart.getDate() + i);
+    weekDates.push(d.toISOString().split('T')[0]);
+  }
+
+  const startStr = weekDates[0];
+  const endStr = weekDates[6];
+
+  // Get all daily communal task instances for this area in this week
+  const instances = findWhere('taskInstances', t =>
+    t.template_id === 'tpl_daily_communal' &&
+    t.room_id === req.params.areaId &&
+    t.date >= startStr &&
+    t.date <= endStr
+  );
+
+  // Get task definitions for daily communal template
+  const taskDefs = findWhere('taskDefinitions', td => td.template_id === 'tpl_daily_communal')
+    .sort((a, b) => a.order - b.order);
+
+  // Build grid: each task has days array (Mon-Sun)
+  const tasks = taskDefs.map(def => {
+    const taskInstances = instances.filter(i => i.task_definition_id === def.id);
+    const days = weekDates.map((dateStr, idx) => {
+      const inst = taskInstances.find(i => i.date === dateStr);
+      const staff = inst?.completed_by ? findById('staff', inst.completed_by) : null;
+      return {
+        day: dayNames[idx],
+        date: dateStr,
+        done: inst ? inst.status === 'done' : false,
+        initials: staff?.initials || null,
+        status: inst?.status || null
+      };
+    });
+
+    return {
+      id: def.id,
+      name: def.name,
+      order: def.order,
+      days
+    };
+  });
+
+  return {
+    status: 200,
+    data: {
+      room: { id: room.id, room_number: room.room_number, type: room.type },
+      weekStart: startStr,
+      weekEnd: endStr,
+      tasks
+    }
+  };
+});
+
 export { routes };
