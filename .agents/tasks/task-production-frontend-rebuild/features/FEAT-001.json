@@ -1,0 +1,28 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Add new backend API endpoints to serve checklist data in a grid/table format matching the paper forms (weekly W1-W5 per room per month, quarterly by month per room, daily Mon-Sun per room). The current API only returns tasks for a single date. New endpoints must return structured grid data showing all weeks/months with historical initials filled in.",
+  "status": "completed",
+  "steps": [
+    "Add GET /api/checklists/weekly/:roomId endpoint in backend/src/routes.js that returns weekly tasks for a given room for the current month. Response: { room, month, year, tasks: [{name, w1: {done, initials, date}, w2: {...}, w3: {...}, w4: {...}, w5: {...}}] }. Determine week number within month by date. Look up completed_by staff initials from the staff table.",
+    "Add GET /api/checklists/quarterly/:roomId endpoint that returns quarterly deep clean tasks for a room for the current year. Response: { room, year, tasks: [{name, entries: [{month, initials, date}]}] }. Match template_id 'tpl_quarterly_deep'.",
+    "Add GET /api/checklists/daily/:roomId endpoint that returns daily tasks for a room for the current week (Mon-Sun). Response: { room, weekStart, tasks: [{name, days: [{day, done, initials, date}]}] }. Match template_id 'tpl_daily_room'.",
+    "Add GET /api/checklists/daily-communal/:areaId endpoint for communal area daily tasks (same format as daily room but for communal areas, template_id 'tpl_daily_communal').",
+    "Add optional query param ?month=YYYY-MM to weekly and ?year=YYYY to quarterly endpoints to allow viewing past periods.",
+    "Ensure all new endpoints require auth (use existing requireAuth pattern from routes.js).",
+    "Update the seed.js to also generate quarterly task instances - currently only daily, weekly, and door handle tasks are seeded. Add quarterly tasks for rooms 1-18 for months already passed in current year (e.g., if current month is June, seed March quarterly entries with completed status)."
+  ],
+  "acceptance_criteria": [
+    "GET /api/checklists/weekly/room_1 returns a JSON object with room info, month, year, and a tasks array where each task has w1-w5 properties showing done/initials/date",
+    "GET /api/checklists/quarterly/room_1 returns a JSON object with year and tasks array where each task has entries array with month/initials/date",
+    "GET /api/checklists/daily/room_1 returns current week's daily tasks with Mon-Sun breakdown showing done/initials per day",
+    "All endpoints return 401 without valid auth token",
+    "Historical data shows initials (HS, RT, AN, DP) from seed data for past periods"
+  ],
+  "verification": [
+    "Start the server and manually test: curl -s http://localhost:3000/api/auth/login -X POST -H 'Content-Type: application/json' -d '{\"pin\":\"1234\"}' to get a token, then curl with the token to /api/checklists/weekly/room_1 and verify it returns structured grid data with initials",
+    "Existing test.js tests should still pass (no breaking changes to existing endpoints)"
+  ],
+  "blocked_reason": null,
+  "findings": "All endpoints verified working. Quarterly seed generates data for Jan and Apr 2026 (every 3rd month that has passed). Weekly data present for current month (today + Monday within 7-day lookback). Daily data shows full Mon-Sun grid with past days filled. All 4 endpoints properly reject unauthenticated requests with 401."
+}

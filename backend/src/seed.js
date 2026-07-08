@@ -313,6 +313,49 @@ export function seedDatabase() {
     }
   }
 
+  // ===== GENERATE QUARTERLY TASK INSTANCES FOR PAST MONTHS IN CURRENT YEAR =====
+  const currentMonth = today.getMonth(); // 0-indexed
+  const currentYear = today.getFullYear();
+  // Generate quarterly tasks for every 3rd month that has already passed
+  // Quarters: month 0 (Jan), 3 (Apr), 6 (Jul), 9 (Oct)
+  const quarterMonths = [0, 3, 6, 9].filter(m => m < currentMonth);
+  // Also generate for some non-quarter months to show historical data
+  // For a realistic scenario, generate entries for months that have passed
+  const monthsToSeed = [];
+  for (let m = 0; m < currentMonth; m++) {
+    // Seed quarterly entries every 3 months (Jan, Apr, Jul, Oct)
+    if (m % 3 === 0) {
+      monthsToSeed.push(m);
+    }
+  }
+
+  for (const month of monthsToSeed) {
+    // Pick a date in the middle of the month
+    const seedDate = new Date(currentYear, month, 15);
+    const seedDateStr = seedDate.toISOString().split('T')[0];
+
+    for (let roomNum = 1; roomNum <= 18; roomNum++) {
+      const assignedStaff = staffIds[roomNum % 4];
+      quarterlyTasks.forEach((task, taskIdx) => {
+        const completed = Math.random() > 0.1; // 90% completion rate for past quarters
+        insert('taskInstances', {
+          id: generateId(),
+          template_id: 'tpl_quarterly_deep',
+          task_definition_id: `td_quarterly_${taskIdx + 1}`,
+          room_id: `room_${roomNum}`,
+          assigned_to: assignedStaff,
+          date: seedDateStr,
+          time_slot: null,
+          status: completed ? 'done' : 'missed',
+          completed_by: completed ? assignedStaff : null,
+          completed_at: completed ? `${seedDateStr}T${10 + Math.floor(Math.random() * 5)}:${String(Math.floor(Math.random() * 60)).padStart(2, '0')}:00Z` : null,
+          note: null,
+          photo_url: null
+        });
+      });
+    }
+  }
+
   // ===== SAMPLE ISSUES =====
   const sampleIssues = [
     {
