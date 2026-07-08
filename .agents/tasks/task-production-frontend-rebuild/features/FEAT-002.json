@@ -1,0 +1,38 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "Complete rewrite of the frontend (frontend/public/index.html, frontend/public/styles.css, frontend/public/app.js) to display checklist data as TABLE/GRID format matching the paper forms from Merling Care Limited - Glebe House Care Home. Must show previous data (past weeks filled with staff initials), current week highlighted and editable, per-room navigation, and use the pink/magenta branding matching the paper form headers.",
+  "status": "in_progress",
+  "steps": [
+    "Rewrite frontend/public/styles.css with a production design system using pink/magenta as primary color (matching Merling Care paper forms which have pink/magenta headers). Use CSS variables: --primary as #c2185b or similar magenta/pink, --primary-light, --primary-dark. Keep the professional look with clean table styling, proper responsive grid, and the care home branding aesthetic.",
+    "Rewrite frontend/public/index.html - keep it minimal: just the app container, no external fonts (since INTEGRATIONS_ONLY network), use system font stack. Include proper meta tags for mobile.",
+    "Rewrite frontend/public/app.js as a complete SPA with these views: (1) Login screen with PIN pad (keep existing logic), (2) Checklist Grid View - the main view showing a TABLE matching the paper form layout, (3) Room Selector to switch between rooms, (4) Manager/Dashboard view for compliance overview.",
+    "Implement the Weekly Checklist Grid view as the primary view after login: A table with columns: Specification | W1 | Sign | W2 | Sign | W3 | Sign | W4 | Sign | W5 | Sign. Rows are the 7 weekly tasks. Cells show checkmark/tick for done and staff initials in Sign columns. Past weeks show historical data. Current week's cells are interactive (tap to sign off). Header shows 'Weekly Housekeeping check list of the Resident Room' + room number + month/year, matching the paper form title.",
+    "Implement room selector: dropdown or tab bar showing Room 1, Room 2, ... Room 18, plus communal areas. When a room is selected, fetch that room's checklist data from the new API endpoints.",
+    "Implement checklist type tabs: Weekly | Daily | 3-Monthly | IPC. Each tab switches the grid to show the appropriate checklist format. Daily shows Mon-Sun columns. 3-Monthly shows month columns for quarterly entries. IPC shows AM/PM door handles.",
+    "Implement the 'sign off' interaction: when staff taps on the current week/day cell that is not yet done, call POST /api/tasks/:id/complete to mark it done. The cell then shows their initials. Use the existing API.",
+    "Implement Manager Dashboard view (visible to supervisor/manager/auditor roles): Shows compliance percentage per room as a summary table, highlights rooms below target, shows overall stats. Uses existing /api/dashboard/compliance endpoint.",
+    "Add month/year navigation arrows to the weekly and quarterly views so managers can look back at historical months.",
+    "Ensure the design is mobile-first and touch-friendly - tables should be horizontally scrollable on small screens, tap targets at least 44px, current period highlighted with the pink/magenta brand color."
+  ],
+  "acceptance_criteria": [
+    "After login, the main view shows a TABLE/GRID format with columns for W1-W5 (or Mon-Sun for daily, or Month columns for quarterly), not task cards",
+    "Past weeks/days show initials of staff who completed them (e.g., HS, RT, AN)",
+    "Current week/day cells are interactive - tapping them signs off the task with the logged-in user's initials",
+    "Room selector allows switching between rooms 1-18 and communal areas",
+    "The header shows 'Merling Care Limited - Glebe House Care (Nursing) Home' and 'Weekly Housekeeping check list of the Resident Room' matching the paper form",
+    "Design uses pink/magenta as the primary brand color for headers and highlights",
+    "Manager dashboard shows compliance overview across all rooms",
+    "No external resources loaded (no Google Fonts, no CDN) - all self-contained",
+    "Login screen still works with PIN pad and existing auth flow"
+  ],
+  "verification": [
+    "Start server with: cd /projects/sandbox/n1/backend && NODE_OPTIONS='' node src/index.js",
+    "Verify frontend files exist and are syntactically valid: NODE_OPTIONS='' node -e \"import('/projects/sandbox/n1/frontend/public/app.js')\" should not throw (or use basic syntax check)",
+    "Verify HTML file references app.js and styles.css correctly",
+    "Verify no external URLs in HTML or CSS (no fonts.googleapis.com, no CDN links)",
+    "Existing backend test.js tests should still pass since backend API is only extended, not modified"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}
